@@ -76,17 +76,10 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
         correct_order = ['Business as Usual', 'Cut Emissions Aggressively', 'Emissions Removal', 'Climate Interventions']
         
         for i, correct_name in enumerate(correct_order):
-            matched_key = next((key for key in scenarios.keys() if correct_name in key), None)
+            matched_key = next((key for key in scenarios.keys() if correct_name.lower() in key.lower()), None)
             if matched_key is None or len(scenarios[matched_key]) < 100:
                 # Generate default data if missing or incomplete
-                if i == 0:
-                    data = generate_default_scenario(correct_name, 0, 6)
-                elif i == 1:
-                    data = generate_default_scenario(correct_name, 0, 4)
-                elif i == 2:
-                    data = generate_default_scenario(correct_name, 0, 2)
-                else:
-                    data = generate_default_scenario(correct_name, 0, 1)
+                data = generate_default_scenario(correct_name, 0, 6 - i)
             else:
                 data = scenarios[matched_key]
             
@@ -107,7 +100,7 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
         st.error(f"Failed to parse the response: {e}")
         st.write("API Response:", response.choices[0].message.content)
         return None
-
+    
 def update_plot():
     fig, ax = plt.subplots(figsize=(12, 8))
     years = np.linspace(0, 100, 100)
