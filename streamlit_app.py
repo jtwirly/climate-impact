@@ -2,8 +2,8 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
 from openai import OpenAI
-import json
 import os
+import ast
 
 # Get the OpenAI API key from the environment variable
 api_key = os.getenv('OPENAI_API_KEY')
@@ -14,7 +14,6 @@ if not api_key:
 
 # Initialize the OpenAI client
 client = OpenAI(api_key=api_key)
-
 
 def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration):
     prompt = f"""
@@ -30,8 +29,10 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
     3. Emissions Removal
     4. Climate Interventions
 
-    Return the data as a Python dictionary with scenario names as keys and lists of 100 temperature values as values.
+    Return ONLY a Python dictionary with scenario names as keys and lists of EXACTLY 100 temperature values as values.
     Use credible sources like IPCC reports for baseline data and projections.
+    The dictionary should look like this:
+    {{"Business as Usual": [list of 100 values], "Cut Emissions Aggressively": [list of 100 values], ...}}
     """
 
     response = client.chat.completions.create(
@@ -43,9 +44,13 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
     )
 
     try:
-        scenarios = eval(response.choices[0].message.content)
+        # Use ast.literal_eval to safely evaluate the string as a Python expression
+        scenarios = ast.literal_eval(response.choices[0].message.content)
         if not isinstance(scenarios, dict) or len(scenarios) != 4:
-            raise ValueError("Invalid response format")
+            raise ValueError("Invalid response format: not a dictionary with 4 scenarios")
+        for scenario, data in scenarios.items():
+            if not isinstance(data, list) or len(data) != 100:
+                raise ValueError(f"Invalid data for scenario '{scenario}': expected list of 100 values, got {len(data)} values")
         return scenarios
     except Exception as e:
         st.error(f"Failed to parse the response: {e}")
@@ -53,13 +58,10 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
         return None
 
 # Set page config
-st.set_page_config(
-    page_title='Climate Impact Scenarios',
-    page_icon=':earth_americas:',
-)
+st.set_page_config(page_title='Climate Impact Scenarios', page_icon=':earth_americas:')
 
 # Title
-st.title(' Climate Impact Scenarios')
+st.title('Climate Impact Scenarios')
 
 st.write("""
 This tool allows you to explore different climate impact scenarios based on various interventions.
@@ -67,21 +69,8 @@ Adjust the parameters below to see how they affect the projected climate impact 
 """)
 
 # User inputs
-def validate_user_input(value, min_value, max_value):
-    """
-    Validates user input to ensure it's within the specified range.
-    """
-    if value < min_value or value > max_value:
-        st.error(f"Value must be between {min_value} and {max_value}.")
-        return None
-    return value
-
 co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10)
-co2_price = validate_user_input(co2_price, 0, 1000)  # Validate CO2 price
-
 years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30)
-years_to_reduce = validate_user_input(years_to_reduce, 0, 100)  # Validate years to reduce emissions
-
 intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1)
 intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20)
 
