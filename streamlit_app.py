@@ -41,16 +41,15 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
             {"role": "user", "content": prompt}
         ]
     )
-    
-    st.write(response.choices[0].message.content)  # Add this line to debug
-    scenarios = json.loads(response.choices[0].message.content)
 
-try:
-    scenarios = json.loads(response.choices[0].message.content)
-except json.JSONDecodeError as e:
-    st.error("Failed to decode JSON response. Please try again.")
-    st.write("API Response:", response.choices[0].message.content)  # Debugging info
-    st.stop()
+    try:
+        scenarios = json.loads(response.choices[0].message.content)
+    except json.JSONDecodeError as e:
+        st.error("Failed to decode JSON response. Please try again.")
+        st.write("API Response:", response.choices[0].message.content)  # Debugging info
+        st.stop()
+
+    return scenarios
 
 # Set page config
 st.set_page_config(
