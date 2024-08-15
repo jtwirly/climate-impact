@@ -4,7 +4,8 @@ import numpy as np
 from scipy.interpolate import make_interp_spline
 from openai import OpenAI
 import os
-import re
+import json
+from typing import Dict, List
 
 # Get the OpenAI API key from the environment variable
 api_key = os.getenv('OPENAI_API_KEY')
@@ -16,25 +17,7 @@ if not api_key:
 # Initialize the OpenAI client
 client = OpenAI(api_key=api_key)
 
-def normalize_data(data, target_length=100):
-    """Normalize data to target length by padding or trimming."""
-    if len(data) < target_length:
-        return data + [data[-1]] * (target_length - len(data))
-    return data[:target_length]
-
-def parse_incomplete_json(s):
-    result = {}
-    pattern = r'"([^"]+)"\s*:\s*\[([\d\.,\s]+)'
-    matches = re.findall(pattern, s)
-    for key, values in matches:
-        values = [float(v) for v in values.replace(' ', '').split(',') if v]
-        result[key] = values
-    return result
-
-def generate_default_scenario(name, start, end):
-    return [start + (end - start) * i / 99 for i in range(100)]
-
-def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration):
+def generate_climate_scenarios(co2_price: float, years_to_reduce: int, intervention_temp: float, intervention_duration: int) -> Dict[str, List[float]]:
     prompt = f"""
     Generate realistic climate impact scenarios based on the following parameters:
     - CO2 price: ${co2_price} per ton
@@ -59,49 +42,54 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
     Use the latest IPCC reports for baseline data and projections.
     """
 
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "You are an expert in climate science and data analysis. Provide only the requested dictionary in your response, no other text."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
     try:
-        scenarios = parse_incomplete_json(response.choices[0].message.content)
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an expert in climate science and data analysis. Provide only the requested dictionary in your response, no other text."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        # Sanitize and parse JSON response
+        sanitized_response = response.choices[0].message.content.strip()
+        if sanitized_response.startswith("{"):
+            sanitized_response = sanitized_response.replace("'", '"')  # Replace single quotes with double quotes
+        scenarios = json.loads(sanitized_response)
+
+        # Validate and process scenarios
         if len(scenarios) != 4:
             raise ValueError("Invalid response format: not a dictionary with 4 scenarios")
-        
+
         normalized_scenarios = {}
         correct_order = ['Business as Usual', 'Cut Emissions Aggressively', 'Emissions Removal', 'Climate Interventions']
-        
+
         for i, correct_name in enumerate(correct_order):
             matched_key = next((key for key in scenarios.keys() if correct_name.lower() in key.lower()), None)
             if matched_key is None or len(scenarios[matched_key]) < 100:
                 # Generate default data if missing or incomplete
-                data = generate_default_scenario(correct_name, 0, 6 - i)
+                data = np.linspace(0, 6 - i, 100)
             else:
-                data = scenarios[matched_key]
-            
-            normalized_data = normalize_data(data)
+                data = scenarios[matched_key][:100]  # Ensure we have 100 data points
+
             # Ensure no negative values and cap at 6°C
-            normalized_data = [min(max(0, value), 6) for value in normalized_data]
+            normalized_data = np.clip(data, 0, 6).tolist()
             normalized_scenarios[correct_name] = normalized_data
-        
+
         # Ensure scenarios are in descending order of warming
         for i in range(len(correct_order) - 1):
             if normalized_scenarios[correct_order[i]][-1] <= normalized_scenarios[correct_order[i+1]][-1]:
                 # Adjust the data to ensure correct order
                 factor = normalized_scenarios[correct_order[i]][-1] / normalized_scenarios[correct_order[i+1]][-1]
                 normalized_scenarios[correct_order[i+1]] = [value / factor for value in normalized_scenarios[correct_order[i+1]]]
-        
+
         return normalized_scenarios
     except Exception as e:
-        st.error(f"Failed to parse the response: {e}")
+        st.error(f"Failed to generate scenarios: {str(e)}")
         st.write("API Response:", response.choices[0].message.content)
         return None
-    
-def update_plot():
+
+def update_plot(scenarios: Dict[str, List[float]]):
     fig, ax = plt.subplots(figsize=(12, 8))
     years = np.linspace(0, 100, 100)
 
@@ -115,10 +103,10 @@ def update_plot():
 
     max_temp = 0
     # Plot smooth curves and shaded areas
-    scenario_names = list(st.session_state.scenarios.keys())
+    scenario_names = list(scenarios.keys())
     for i, scenario in enumerate(scenario_names):
         try:
-            data = st.session_state.scenarios[scenario]
+            data = scenarios[scenario]
             max_temp = max(max_temp, max(data))
             
             # Create smooth curve
@@ -135,7 +123,7 @@ def update_plot():
             # Add shaded area
             if i < len(scenario_names) - 1:
                 next_scenario = scenario_names[i + 1]
-                next_data = st.session_state.scenarios[next_scenario]
+                next_data = scenarios[next_scenario]
                 next_spl = make_interp_spline(years, next_data, k=3)
                 next_smooth_data = next_spl(smooth_years)
                 ax.fill_between(smooth_years, smooth_data, next_smooth_data, alpha=0.3, color=color)
@@ -157,29 +145,24 @@ def update_plot():
     st.pyplot(fig)
     plt.close(fig)
 
-    try:
-        # Calculate and update market sizes
-        emissions_removal_market = max(0, np.trapz(
-            np.array(st.session_state.scenarios['Cut Emissions Aggressively']) - 
-            np.array(st.session_state.scenarios['Emissions Removal']), 
-            years
-        ) * st.session_state.co2_price * 1e9)
+def calculate_market_sizes(scenarios: Dict[str, List[float]], co2_price: float) -> Dict[str, float]:
+    years = np.linspace(0, 100, 100)
+    emissions_removal_market = max(0, np.trapz(
+        np.array(scenarios['Cut Emissions Aggressively']) - 
+        np.array(scenarios['Emissions Removal']), 
+        years
+    ) * co2_price * 1e9)
 
-        climate_interventions_market = max(0, np.trapz(
-            np.array(st.session_state.scenarios['Emissions Removal']) - 
-            np.array(st.session_state.scenarios['Climate Interventions']), 
-            years
-        ) * st.session_state.co2_price * 1e9)
+    climate_interventions_market = max(0, np.trapz(
+        np.array(scenarios['Emissions Removal']) - 
+        np.array(scenarios['Climate Interventions']), 
+        years
+    ) * co2_price * 1e9)
 
-        st.markdown(f"""
-        ### Estimated Market Sizes
-        - Emissions Removal Market: ${emissions_removal_market/1e9:.2f} billion
-        - Climate Interventions Market: ${climate_interventions_market/1e9:.2f} billion
-
-        *Note: These are rough estimates based on the provided scenarios and user inputs.*
-        """)
-    except Exception as e:
-        st.error(f"Error calculating market sizes: {str(e)}")
+    return {
+        'Emissions Removal': emissions_removal_market,
+        'Climate Interventions': climate_interventions_market
+    }
 
 # Streamlit app
 st.title("Interactive Climate Impact Scenarios")
@@ -189,31 +172,30 @@ This tool allows you to explore different climate impact scenarios based on vari
 Adjust the parameters below to see how they affect the projected climate impact over time.
 """)
 
-# Initialize session state
-if 'scenarios' not in st.session_state:
-    st.session_state.scenarios = None
-
 # User inputs
-st.session_state.co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10)
-st.session_state.years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30)
-st.session_state.intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1)
-st.session_state.intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20)
+co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10)
+years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30)
+intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1)
+intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20)
 
 # Generate scenarios button
-if st.button("Generate Scenarios") or st.session_state.scenarios is None:
+if st.button("Generate Scenarios"):
     with st.spinner("Generating climate scenarios..."):
-        st.session_state.scenarios = generate_climate_scenarios(
-            client, 
-            st.session_state.co2_price, 
-            st.session_state.years_to_reduce, 
-            st.session_state.intervention_temp, 
-            st.session_state.intervention_duration
-        )
+        scenarios = generate_climate_scenarios(co2_price, years_to_reduce, intervention_temp, intervention_duration)
+    
+    if scenarios:
+        update_plot(scenarios)
+        market_sizes = calculate_market_sizes(scenarios, co2_price)
+        
+        st.markdown(f"""
+        ### Estimated Market Sizes
+        - Emissions Removal Market: ${market_sizes['Emissions Removal']/1e9:.2f} billion
+        - Climate Interventions Market: ${market_sizes['Climate Interventions']/1e9:.2f} billion
 
-if st.session_state.scenarios:
-    update_plot()
-else:
-    st.error("Failed to generate scenarios. Please try again.")
+        *Note: These are rough estimates based on the provided scenarios and user inputs.*
+        """)
+    else:
+        st.error("Failed to generate scenarios. Please try again.")
 
 # Add explanatory text
 st.markdown("""
