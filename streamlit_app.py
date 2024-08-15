@@ -153,7 +153,7 @@ def update_plot():
         """)
     except Exception as e:
         st.error(f"Error calculating market sizes: {str(e)}")
-        
+
 # Streamlit app
 st.title("Interactive Climate Impact Scenarios")
 
