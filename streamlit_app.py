@@ -91,7 +91,9 @@ if st.button("Generate Scenarios"):
 
     if scenarios is None:
         st.error("Failed to generate scenarios. Please try again.")
-
+        # No need for continue here, as the code execution stops
+    else:
+        
     # Create the plot
     fig, ax = plt.subplots(figsize=(12, 8))
     years = np.arange(100)
