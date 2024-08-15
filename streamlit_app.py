@@ -78,7 +78,7 @@ def update_plot():
     fig, ax = plt.subplots(figsize=(12, 8))
     years = np.linspace(0, 100, 100)
 
-    # Define colors
+    # Define colors with more flexible keys
     colors = {
         'Business as Usual': '#1f77b4',  # Blue
         'Cut Emissions Aggressively': '#ff7f0e',  # Orange
@@ -89,26 +89,31 @@ def update_plot():
     max_temp = 0
     # Plot smooth curves and shaded areas
     scenario_names = list(st.session_state.scenarios.keys())
-    for i in range(len(scenario_names)):
-        scenario = scenario_names[i]
-        data = st.session_state.scenarios[scenario]
-        max_temp = max(max_temp, max(data))
-        
-        # Create smooth curve
-        spl = make_interp_spline(years, data, k=3)
-        smooth_years = np.linspace(0, 100, 300)
-        smooth_data = spl(smooth_years)
-        
-        # Plot the smooth curve
-        ax.plot(smooth_years, smooth_data, label=scenario, color=colors[scenario], linewidth=2)
-        
-        # Add shaded area
-        if i < len(scenario_names) - 1:
-            next_scenario = scenario_names[i + 1]
-            next_data = st.session_state.scenarios[next_scenario]
-            next_spl = make_interp_spline(years, next_data, k=3)
-            next_smooth_data = next_spl(smooth_years)
-            ax.fill_between(smooth_years, smooth_data, next_smooth_data, alpha=0.3, color=colors[scenario])
+    for i, scenario in enumerate(scenario_names):
+        try:
+            data = st.session_state.scenarios[scenario]
+            max_temp = max(max_temp, max(data))
+            
+            # Create smooth curve
+            spl = make_interp_spline(years, data, k=3)
+            smooth_years = np.linspace(0, 100, 300)
+            smooth_data = spl(smooth_years)
+            
+            # Get color, use a default if not found
+            color = colors.get(scenario, f'C{i}')  # Use matplotlib's default color cycle if not found
+            
+            # Plot the smooth curve
+            ax.plot(smooth_years, smooth_data, label=scenario, color=color, linewidth=2)
+            
+            # Add shaded area
+            if i < len(scenario_names) - 1:
+                next_scenario = scenario_names[i + 1]
+                next_data = st.session_state.scenarios[next_scenario]
+                next_spl = make_interp_spline(years, next_data, k=3)
+                next_smooth_data = next_spl(smooth_years)
+                ax.fill_between(smooth_years, smooth_data, next_smooth_data, alpha=0.3, color=color)
+        except Exception as e:
+            st.error(f"Error plotting scenario '{scenario}': {str(e)}")
 
     ax.set_xlabel('Time (Years)')
     ax.set_ylabel('Degrees above pre-industrial warming (°C)')
@@ -125,27 +130,30 @@ def update_plot():
     st.pyplot(fig)
     plt.close(fig)
 
-    # Calculate and update market sizes
-    emissions_removal_market = np.trapz(
-        np.array(st.session_state.scenarios['Cut Emissions Aggressively']) - 
-        np.array(st.session_state.scenarios['Emissions Removal']), 
-        years
-    ) * st.session_state.co2_price * 1e9
+    try:
+        # Calculate and update market sizes
+        emissions_removal_market = np.trapz(
+            np.array(st.session_state.scenarios['Cut Emissions Aggressively']) - 
+            np.array(st.session_state.scenarios['Emissions Removal']), 
+            years
+        ) * st.session_state.co2_price * 1e9
 
-    climate_interventions_market = np.trapz(
-        np.array(st.session_state.scenarios['Emissions Removal']) - 
-        np.array(st.session_state.scenarios['Climate Interventions']), 
-        years
-    ) * st.session_state.co2_price * 1e9
+        climate_interventions_market = np.trapz(
+            np.array(st.session_state.scenarios['Emissions Removal']) - 
+            np.array(st.session_state.scenarios['Climate Interventions']), 
+            years
+        ) * st.session_state.co2_price * 1e9
 
-    st.markdown(f"""
-    ### Estimated Market Sizes
-    - Emissions Removal Market: ${emissions_removal_market/1e9:.2f} billion
-    - Climate Interventions Market: ${climate_interventions_market/1e9:.2f} billion
+        st.markdown(f"""
+        ### Estimated Market Sizes
+        - Emissions Removal Market: ${emissions_removal_market/1e9:.2f} billion
+        - Climate Interventions Market: ${climate_interventions_market/1e9:.2f} billion
 
-    *Note: These are rough estimates based on the provided scenarios and user inputs.*
-    """)
-
+        *Note: These are rough estimates based on the provided scenarios and user inputs.*
+        """)
+    except Exception as e:
+        st.error(f"Error calculating market sizes: {str(e)}")
+        
 # Streamlit app
 st.title("Interactive Climate Impact Scenarios")
 
