@@ -24,22 +24,26 @@ def normalize_data(data, target_length=100):
 
 def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration):
     prompt = f"""
-    Generate climate impact scenarios based on the following parameters:
+    Generate realistic climate impact scenarios based on the following parameters:
     - CO2 price: ${co2_price} per ton
     - Years to reduce emissions by >90%: {years_to_reduce}
     - Temperature for climate interventions: {intervention_temp}°C above pre-industrial levels
     - Duration of climate interventions: {intervention_duration} years
 
-    Provide numerical data for four scenarios over 100 years:
-    1. Business as Usual
-    2. Cut Emissions Aggressively
-    3. Emissions Removal
-    4. Climate Interventions
+    Provide numerical data for four scenarios over 100 years, with temperature increases in °C:
+    1. Business as Usual (BAU): Assume no new climate policies.
+    2. Cut Emissions Aggressively: Implement strong emission reduction policies.
+    3. Emissions Removal: Combine emission cuts with carbon removal technologies.
+    4. Climate Interventions: Add geoengineering techniques to other mitigation efforts.
 
-    Return ONLY a Python dictionary with scenario names as keys and lists of temperature values as values.
-    Use credible sources like IPCC reports for baseline data and projections.
-    The dictionary should look like this:
-    {{"Business as Usual": [list of values], "Cut Emissions Aggressively": [list of values], ...}}
+    Ensure the data follows these guidelines:
+    - BAU should show the highest temperature increase, typically between 3-6°C by 2100.
+    - Each subsequent scenario should show progressively less warming.
+    - No scenario should show cooling below pre-industrial levels (i.e., negative values).
+    - Climate Interventions may show the most dramatic reduction but should not eliminate all warming.
+
+    Return ONLY a Python dictionary with scenario names as keys and lists of 100 temperature values as values.
+    Use the latest IPCC reports for baseline data and projections.
     """
 
     response = client.chat.completions.create(
@@ -59,7 +63,10 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
         for scenario, data in scenarios.items():
             if not isinstance(data, list):
                 raise ValueError(f"Invalid data for scenario '{scenario}': expected list of values")
-            normalized_scenarios[scenario] = normalize_data(data)
+            normalized_data = normalize_data(data)
+            # Ensure no negative values
+            normalized_data = [max(0, value) for value in normalized_data]
+            normalized_scenarios[scenario] = normalized_data
         
         return normalized_scenarios
     except Exception as e:
@@ -79,11 +86,13 @@ def update_plot():
         'Climate Interventions': '#d62728'  # Red
     }
 
+    max_temp = 0
     # Plot smooth curves and shaded areas
     scenario_names = list(st.session_state.scenarios.keys())
     for i in range(len(scenario_names)):
         scenario = scenario_names[i]
         data = st.session_state.scenarios[scenario]
+        max_temp = max(max_temp, max(data))
         
         # Create smooth curve
         spl = make_interp_spline(years, data, k=3)
@@ -102,12 +111,12 @@ def update_plot():
             ax.fill_between(smooth_years, smooth_data, next_smooth_data, alpha=0.3, color=colors[scenario])
 
     ax.set_xlabel('Time (Years)')
-    ax.set_ylabel('Degrees above pre-industrial warming')
+    ax.set_ylabel('Degrees above pre-industrial warming (°C)')
     ax.set_title('Climate Impact Scenarios')
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     ax.grid(True, alpha=0.3)
     ax.set_xlim(0, 100)
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(bottom=0, top=max_temp * 1.1)  # Set top of y-axis to 110% of max temperature
 
     # Remove top and right spines
     ax.spines['top'].set_visible(False)
