@@ -41,7 +41,7 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
     - Each subsequent scenario should show progressively less warming.
     - No scenario should show cooling below pre-industrial levels (i.e., negative values).
     - Climate Interventions should show the least warming, but not below 1°C by 2100.
-    - Maximum temperature increase should not exceed 10°C for any scenario.
+    - Maximum temperature increase should not exceed 6°C for any scenario.
 
     Return ONLY a Python dictionary with scenario names as keys and lists of 100 temperature values as values.
     Use the latest IPCC reports for baseline data and projections.
@@ -61,25 +61,28 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
             raise ValueError("Invalid response format: not a dictionary with 4 scenarios")
         
         normalized_scenarios = {}
-        for scenario, data in scenarios.items():
-            if not isinstance(data, list):
-                raise ValueError(f"Invalid data for scenario '{scenario}': expected list of values")
-            normalized_data = normalize_data(data)
-            # Ensure no negative values and cap at 10°C
-            normalized_data = [min(max(0, value), 10) for value in normalized_data]
-            normalized_scenarios[scenario] = normalized_data
-        
-        # Ensure correct ordering of scenarios
         correct_order = ['Business as Usual', 'Cut Emissions Aggressively', 'Emissions Removal', 'Climate Interventions']
-        if not all(scenario in normalized_scenarios for scenario in correct_order):
-            raise ValueError("Missing or incorrect scenario names")
+        
+        for correct_name in correct_order:
+            matched_key = next((key for key in scenarios.keys() if correct_name in key), None)
+            if matched_key is None:
+                raise ValueError(f"Missing scenario: {correct_name}")
+            
+            data = scenarios[matched_key]
+            if not isinstance(data, list):
+                raise ValueError(f"Invalid data for scenario '{matched_key}': expected list of values")
+            
+            normalized_data = normalize_data(data)
+            # Ensure no negative values and cap at 6°C
+            normalized_data = [min(max(0, value), 6) for value in normalized_data]
+            normalized_scenarios[correct_name] = normalized_data
         
         # Ensure scenarios are in descending order of warming
         for i in range(len(correct_order) - 1):
             if normalized_scenarios[correct_order[i]][-1] <= normalized_scenarios[correct_order[i+1]][-1]:
                 raise ValueError(f"Scenario {correct_order[i]} should show more warming than {correct_order[i+1]}")
         
-        return {scenario: normalized_scenarios[scenario] for scenario in correct_order}
+        return normalized_scenarios
     except Exception as e:
         st.error(f"Failed to parse the response: {e}")
         st.write("API Response:", response.choices[0].message.content)
