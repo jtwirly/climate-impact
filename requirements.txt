@@ -3,5 +3,3 @@ pandas
 numpy
 openai
 matplotlib
-os
-json
