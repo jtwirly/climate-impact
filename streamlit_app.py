@@ -24,33 +24,33 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
     - Temperature for climate interventions: {intervention_temp}°C above pre-industrial levels
     - Duration of climate interventions: {intervention_duration} years
 
-    Provide data for four scenarios over 100 years:
+    Provide numerical data for four scenarios over 100 years:
     1. Business as Usual
     2. Cut Emissions Aggressively
     3. Emissions Removal
     4. Climate Interventions
 
+    Return the data as a Python dictionary with scenario names as keys and lists of 100 temperature values as values.
     Use credible sources like IPCC reports for baseline data and projections.
     """
 
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "You are an expert in climate science and data analysis."},
+            {"role": "system", "content": "You are an expert in climate science and data analysis. Provide only the requested dictionary in your response, no other text."},
             {"role": "user", "content": prompt}
         ]
     )
 
-    # Handle unexpected response format
     try:
-        scenarios = json.loads(response.choices[0].message.content)
-    except json.JSONDecodeError as e:
-        st.error("Failed to decode JSON response. Please try again.")
+        scenarios = eval(response.choices[0].message.content)
+        if not isinstance(scenarios, dict) or len(scenarios) != 4:
+            raise ValueError("Invalid response format")
+        return scenarios
+    except Exception as e:
+        st.error(f"Failed to parse the response: {e}")
         st.write("API Response:", response.choices[0].message.content)  # Debugging info
-        return None  # Indicate failure to generate scenarios
-
-    return scenarios
-
+        return None
 
 # Set page config
 st.set_page_config(
@@ -90,8 +90,7 @@ if st.button("Generate Scenarios"):
         scenarios = generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration)
 
     if scenarios is None:
-        st.error("Failed to decode JSON response. Please try again.")
-        # No need for continue here, as the code execution stops
+        st.error("Failed to generate scenarios. Please try again.")
     else:
         # Create the plot
         fig, ax = plt.subplots(figsize=(12, 8))
@@ -100,24 +99,21 @@ if st.button("Generate Scenarios"):
         for scenario, data in scenarios.items():
             ax.plot(years, data, label=scenario)
 
-    ax.fill_between(years, scenarios['Emissions Removal'], scenarios['Cut Emissions Aggressively'], alpha=0.3, label='Emissions Removal')
-    ax.fill_between(years, scenarios['Climate Interventions'], scenarios['Emissions Removal'], alpha=0.3, label='Climate Interventions')
+        ax.set_xlabel('Time (Years)')
+        ax.set_ylabel('Degrees above pre-industrial warming')
+        ax.set_title('Climate Impact Scenarios')
+        ax.legend()
+        ax.grid(True)
 
-    ax.set_xlabel('Time (Years)')
-    ax.set_ylabel('Degrees above pre-industrial warming')
-    ax.set_title('Climate Impact Scenarios')
-    ax.legend()
-    ax.grid(True)
+        # Display the plot
+        st.pyplot(fig)
 
-    # Display the plot
-    st.pyplot(fig)
+        # Calculate market sizes
+        emissions_removal_market = np.trapz(np.array(scenarios['Cut Emissions Aggressively']) - np.array(scenarios['Emissions Removal']), years) * co2_price * 1e9
+        climate_interventions_market = np.trapz(np.array(scenarios['Emissions Removal']) - np.array(scenarios['Climate Interventions']), years) * co2_price * 1e9
 
-    # Calculate market sizes
-    emissions_removal_market = np.trapz(np.array(scenarios['Cut Emissions Aggressively']) - np.array(scenarios['Emissions Removal']), years) * co2_price * 1e9
-    climate_interventions_market = np.trapz(np.array(scenarios['Emissions Removal']) - np.array(scenarios['Climate Interventions']), years) * co2_price * 1e9
+        st.subheader('Estimated Market Sizes')
+        st.write(f"Emissions Removal Market: ${emissions_removal_market/1e9:.2f} billion")
+        st.write(f"Climate Interventions Market: ${climate_interventions_market/1e9:.2f} billion")
 
-    st.subheader('Estimated Market Sizes')
-    st.write(f"Emissions Removal Market: ${emissions_removal_market/1e9:.2f} billion")
-    st.write(f"Climate Interventions Market: ${climate_interventions_market/1e9:.2f} billion")
-
-    st.caption("Note: These are rough estimates based on the provided scenarios and user inputs.")
+        st.caption("Note: These are rough estimates based on the provided scenarios and user inputs.")
