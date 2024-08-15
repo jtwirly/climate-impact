@@ -70,10 +70,8 @@ def update_plot():
     fig, ax = plt.subplots(figsize=(12, 8))
     years = np.arange(100)
 
-    for scenario, base_data in st.session_state.scenarios.items():
-        # Apply the scaling factors to the data
-        scaled_data = np.array(base_data) * st.session_state[f"{scenario}_scale"]
-        ax.plot(years, scaled_data, label=scenario)
+    for scenario, data in st.session_state.scenarios.items():
+        ax.plot(years, data, label=scenario)
 
     ax.set_xlabel('Time (Years)')
     ax.set_ylabel('Degrees above pre-industrial warming')
@@ -86,14 +84,14 @@ def update_plot():
 
     # Calculate and update market sizes
     emissions_removal_market = np.trapz(
-        np.array(st.session_state.scenarios['Cut Emissions Aggressively']) * st.session_state['Cut Emissions Aggressively_scale'] - 
-        np.array(st.session_state.scenarios['Emissions Removal']) * st.session_state['Emissions Removal_scale'], 
+        np.array(st.session_state.scenarios['Cut Emissions Aggressively']) - 
+        np.array(st.session_state.scenarios['Emissions Removal']), 
         years
     ) * st.session_state.co2_price * 1e9
 
     climate_interventions_market = np.trapz(
-        np.array(st.session_state.scenarios['Emissions Removal']) * st.session_state['Emissions Removal_scale'] - 
-        np.array(st.session_state.scenarios['Climate Interventions']) * st.session_state['Climate Interventions_scale'], 
+        np.array(st.session_state.scenarios['Emissions Removal']) - 
+        np.array(st.session_state.scenarios['Climate Interventions']), 
         years
     ) * st.session_state.co2_price * 1e9
 
@@ -121,23 +119,23 @@ if 'scenarios' not in st.session_state:
     st.session_state.scenarios = None
 
 # User inputs
-st.session_state.co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10)
-years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30)
-intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1)
-intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20)
+st.session_state.co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10, on_change=update_plot)
+st.session_state.years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30, on_change=update_plot)
+st.session_state.intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1, on_change=update_plot)
+st.session_state.intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20, on_change=update_plot)
 
 # Generate scenarios button
 if st.button("Generate Scenarios") or st.session_state.scenarios is None:
     with st.spinner("Generating climate scenarios..."):
-        st.session_state.scenarios = generate_climate_scenarios(client, st.session_state.co2_price, years_to_reduce, intervention_temp, intervention_duration)
+        st.session_state.scenarios = generate_climate_scenarios(
+            client, 
+            st.session_state.co2_price, 
+            st.session_state.years_to_reduce, 
+            st.session_state.intervention_temp, 
+            st.session_state.intervention_duration
+        )
 
 if st.session_state.scenarios:
-    # Create sliders for each scenario
-    for scenario in st.session_state.scenarios.keys():
-        if f"{scenario}_scale" not in st.session_state:
-            st.session_state[f"{scenario}_scale"] = 1.0
-        st.session_state[f"{scenario}_scale"] = st.slider(f"Adjust {scenario} impact", 0.5, 2.0, 1.0, 0.1, key=f"{scenario}_scale_slider")
-
     # Create placeholders for the plot and market sizes
     if 'plot_placeholder' not in st.session_state:
         st.session_state.plot_placeholder = st.empty()
