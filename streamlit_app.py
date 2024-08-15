@@ -50,12 +50,10 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
     )
 
     try:
-        # Use ast.literal_eval to safely evaluate the string as a Python expression
         scenarios = ast.literal_eval(response.choices[0].message.content)
         if not isinstance(scenarios, dict) or len(scenarios) != 4:
             raise ValueError("Invalid response format: not a dictionary with 4 scenarios")
         
-        # Normalize data for each scenario
         normalized_scenarios = {}
         for scenario, data in scenarios.items():
             if not isinstance(data, list):
@@ -65,8 +63,47 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
         return normalized_scenarios
     except Exception as e:
         st.error(f"Failed to parse the response: {e}")
-        st.write("API Response:", response.choices[0].message.content)  # Debugging info
+        st.write("API Response:", response.choices[0].message.content)
         return None
+
+def update_plot():
+    fig, ax = plt.subplots(figsize=(12, 8))
+    years = np.arange(100)
+
+    for scenario, base_data in st.session_state.scenarios.items():
+        # Apply the scaling factors to the data
+        scaled_data = np.array(base_data) * st.session_state[f"{scenario}_scale"]
+        ax.plot(years, scaled_data, label=scenario)
+
+    ax.set_xlabel('Time (Years)')
+    ax.set_ylabel('Degrees above pre-industrial warming')
+    ax.set_title('Climate Impact Scenarios')
+    ax.legend()
+    ax.grid(True)
+
+    st.session_state.plot_placeholder.pyplot(fig)
+    plt.close(fig)
+
+    # Calculate and update market sizes
+    emissions_removal_market = np.trapz(
+        np.array(st.session_state.scenarios['Cut Emissions Aggressively']) * st.session_state['Cut Emissions Aggressively_scale'] - 
+        np.array(st.session_state.scenarios['Emissions Removal']) * st.session_state['Emissions Removal_scale'], 
+        years
+    ) * st.session_state.co2_price * 1e9
+
+    climate_interventions_market = np.trapz(
+        np.array(st.session_state.scenarios['Emissions Removal']) * st.session_state['Emissions Removal_scale'] - 
+        np.array(st.session_state.scenarios['Climate Interventions']) * st.session_state['Climate Interventions_scale'], 
+        years
+    ) * st.session_state.co2_price * 1e9
+
+    st.session_state.market_sizes.markdown(f"""
+    ### Estimated Market Sizes
+    - Emissions Removal Market: ${emissions_removal_market/1e9:.2f} billion
+    - Climate Interventions Market: ${climate_interventions_market/1e9:.2f} billion
+
+    *Note: These are rough estimates based on the provided scenarios and user inputs.*
+    """)
 
 # Set page config
 st.set_page_config(page_title='Climate Impact Scenarios', page_icon=':earth_americas:')
@@ -79,41 +116,35 @@ This tool allows you to explore different climate impact scenarios based on vari
 Adjust the parameters below to see how they affect the projected climate impact over time.
 """)
 
+# Initialize session state
+if 'scenarios' not in st.session_state:
+    st.session_state.scenarios = None
+
 # User inputs
-co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10)
+st.session_state.co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10)
 years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30)
 intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1)
 intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20)
 
-if st.button("Generate Scenarios"):
+# Generate scenarios button
+if st.button("Generate Scenarios") or st.session_state.scenarios is None:
     with st.spinner("Generating climate scenarios..."):
-        scenarios = generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration)
+        st.session_state.scenarios = generate_climate_scenarios(client, st.session_state.co2_price, years_to_reduce, intervention_temp, intervention_duration)
 
-    if scenarios is None:
-        st.error("Failed to generate scenarios. Please try again.")
-    else:
-        # Create the plot
-        fig, ax = plt.subplots(figsize=(12, 8))
-        years = np.arange(100)
+if st.session_state.scenarios:
+    # Create sliders for each scenario
+    for scenario in st.session_state.scenarios.keys():
+        if f"{scenario}_scale" not in st.session_state:
+            st.session_state[f"{scenario}_scale"] = 1.0
+        st.session_state[f"{scenario}_scale"] = st.slider(f"Adjust {scenario} impact", 0.5, 2.0, 1.0, 0.1, key=f"{scenario}_scale_slider")
 
-        for scenario, data in scenarios.items():
-            ax.plot(years, data, label=scenario)
+    # Create placeholders for the plot and market sizes
+    if 'plot_placeholder' not in st.session_state:
+        st.session_state.plot_placeholder = st.empty()
+    if 'market_sizes' not in st.session_state:
+        st.session_state.market_sizes = st.empty()
 
-        ax.set_xlabel('Time (Years)')
-        ax.set_ylabel('Degrees above pre-industrial warming')
-        ax.set_title('Climate Impact Scenarios')
-        ax.legend()
-        ax.grid(True)
-
-        # Display the plot
-        st.pyplot(fig)
-
-        # Calculate market sizes
-        emissions_removal_market = np.trapz(np.array(scenarios['Cut Emissions Aggressively']) - np.array(scenarios['Emissions Removal']), years) * co2_price * 1e9
-        climate_interventions_market = np.trapz(np.array(scenarios['Emissions Removal']) - np.array(scenarios['Climate Interventions']), years) * co2_price * 1e9
-
-        st.subheader('Estimated Market Sizes')
-        st.write(f"Emissions Removal Market: ${emissions_removal_market/1e9:.2f} billion")
-        st.write(f"Climate Interventions Market: ${climate_interventions_market/1e9:.2f} billion")
-
-        st.caption("Note: These are rough estimates based on the provided scenarios and user inputs.")
+    # Update the plot
+    update_plot()
+else:
+    st.error("Failed to generate scenarios. Please try again.")
