@@ -40,7 +40,8 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
     - BAU should show the highest temperature increase, typically between 3-6°C by 2100.
     - Each subsequent scenario should show progressively less warming.
     - No scenario should show cooling below pre-industrial levels (i.e., negative values).
-    - Climate Interventions may show the most dramatic reduction but should not eliminate all warming.
+    - Climate Interventions should show the least warming, but not below 1°C by 2100.
+    - Maximum temperature increase should not exceed 10°C for any scenario.
 
     Return ONLY a Python dictionary with scenario names as keys and lists of 100 temperature values as values.
     Use the latest IPCC reports for baseline data and projections.
@@ -64,11 +65,21 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
             if not isinstance(data, list):
                 raise ValueError(f"Invalid data for scenario '{scenario}': expected list of values")
             normalized_data = normalize_data(data)
-            # Ensure no negative values
-            normalized_data = [max(0, value) for value in normalized_data]
+            # Ensure no negative values and cap at 10°C
+            normalized_data = [min(max(0, value), 10) for value in normalized_data]
             normalized_scenarios[scenario] = normalized_data
         
-        return normalized_scenarios
+        # Ensure correct ordering of scenarios
+        correct_order = ['Business as Usual', 'Cut Emissions Aggressively', 'Emissions Removal', 'Climate Interventions']
+        if not all(scenario in normalized_scenarios for scenario in correct_order):
+            raise ValueError("Missing or incorrect scenario names")
+        
+        # Ensure scenarios are in descending order of warming
+        for i in range(len(correct_order) - 1):
+            if normalized_scenarios[correct_order[i]][-1] <= normalized_scenarios[correct_order[i+1]][-1]:
+                raise ValueError(f"Scenario {correct_order[i]} should show more warming than {correct_order[i+1]}")
+        
+        return {scenario: normalized_scenarios[scenario] for scenario in correct_order}
     except Exception as e:
         st.error(f"Failed to parse the response: {e}")
         st.write("API Response:", response.choices[0].message.content)
@@ -78,7 +89,7 @@ def update_plot():
     fig, ax = plt.subplots(figsize=(12, 8))
     years = np.linspace(0, 100, 100)
 
-    # Define colors with more flexible keys
+    # Define colors
     colors = {
         'Business as Usual': '#1f77b4',  # Blue
         'Cut Emissions Aggressively': '#ff7f0e',  # Orange
@@ -121,7 +132,7 @@ def update_plot():
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     ax.grid(True, alpha=0.3)
     ax.set_xlim(0, 100)
-    ax.set_ylim(bottom=0, top=max_temp * 1.1)  # Set top of y-axis to 110% of max temperature
+    ax.set_ylim(bottom=0, top=min(10, max_temp * 1.1))  # Set top of y-axis to 10°C or 110% of max temperature, whichever is lower
 
     # Remove top and right spines
     ax.spines['top'].set_visible(False)
@@ -132,17 +143,17 @@ def update_plot():
 
     try:
         # Calculate and update market sizes
-        emissions_removal_market = np.trapz(
+        emissions_removal_market = max(0, np.trapz(
             np.array(st.session_state.scenarios['Cut Emissions Aggressively']) - 
             np.array(st.session_state.scenarios['Emissions Removal']), 
             years
-        ) * st.session_state.co2_price * 1e9
+        ) * st.session_state.co2_price * 1e9)
 
-        climate_interventions_market = np.trapz(
+        climate_interventions_market = max(0, np.trapz(
             np.array(st.session_state.scenarios['Emissions Removal']) - 
             np.array(st.session_state.scenarios['Climate Interventions']), 
             years
-        ) * st.session_state.co2_price * 1e9
+        ) * st.session_state.co2_price * 1e9)
 
         st.markdown(f"""
         ### Estimated Market Sizes
