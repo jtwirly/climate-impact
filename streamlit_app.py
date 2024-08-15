@@ -70,14 +70,39 @@ def update_plot():
     fig, ax = plt.subplots(figsize=(12, 8))
     years = np.arange(100)
 
-    for scenario, data in st.session_state.scenarios.items():
-        ax.plot(years, data, label=scenario)
+    # Define colors
+    colors = {
+        'Business as Usual': '#1f77b4',  # Blue
+        'Cut Emissions Aggressively': '#ff7f0e',  # Orange
+        'Emissions Removal': '#2ca02c',  # Green
+        'Climate Interventions': '#d62728'  # Red
+    }
+
+    # Plot lines and shaded areas
+    scenarios = list(st.session_state.scenarios.keys())
+    for i in range(len(scenarios) - 1):
+        scenario1 = scenarios[i]
+        scenario2 = scenarios[i + 1]
+        data1 = st.session_state.scenarios[scenario1]
+        data2 = st.session_state.scenarios[scenario2]
+        
+        # Plot the line
+        ax.plot(years, data1, label=scenario1, color=colors[scenario1])
+        
+        # Add shaded area
+        ax.fill_between(years, data1, data2, alpha=0.3, color='grey')
+
+    # Plot the last scenario line
+    ax.plot(years, st.session_state.scenarios[scenarios[-1]], label=scenarios[-1], color=colors[scenarios[-1]])
 
     ax.set_xlabel('Time (Years)')
     ax.set_ylabel('Degrees above pre-industrial warming')
     ax.set_title('Climate Impact Scenarios')
     ax.legend()
-    ax.grid(True)
+    ax.grid(True, alpha=0.3)
+
+    # Set y-axis to start from 0
+    ax.set_ylim(bottom=0)
 
     st.session_state.plot_placeholder.pyplot(fig)
     plt.close(fig)
@@ -102,47 +127,3 @@ def update_plot():
 
     *Note: These are rough estimates based on the provided scenarios and user inputs.*
     """)
-
-# Set page config
-st.set_page_config(page_title='Climate Impact Scenarios', page_icon=':earth_americas:')
-
-# Title
-st.title('Climate Impact Scenarios')
-
-st.write("""
-This tool allows you to explore different climate impact scenarios based on various interventions.
-Adjust the parameters below to see how they affect the projected climate impact over time.
-""")
-
-# Initialize session state
-if 'scenarios' not in st.session_state:
-    st.session_state.scenarios = None
-
-# User inputs
-st.session_state.co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10, on_change=update_plot)
-st.session_state.years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30, on_change=update_plot)
-st.session_state.intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1, on_change=update_plot)
-st.session_state.intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20, on_change=update_plot)
-
-# Generate scenarios button
-if st.button("Generate Scenarios") or st.session_state.scenarios is None:
-    with st.spinner("Generating climate scenarios..."):
-        st.session_state.scenarios = generate_climate_scenarios(
-            client, 
-            st.session_state.co2_price, 
-            st.session_state.years_to_reduce, 
-            st.session_state.intervention_temp, 
-            st.session_state.intervention_duration
-        )
-
-if st.session_state.scenarios:
-    # Create placeholders for the plot and market sizes
-    if 'plot_placeholder' not in st.session_state:
-        st.session_state.plot_placeholder = st.empty()
-    if 'market_sizes' not in st.session_state:
-        st.session_state.market_sizes = st.empty()
-
-    # Update the plot
-    update_plot()
-else:
-    st.error("Failed to generate scenarios. Please try again.")
