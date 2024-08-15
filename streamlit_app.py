@@ -78,19 +78,13 @@ def update_plot():
         'Climate Interventions': '#d62728'  # Red
     }
 
-    # Apply scaling factors to scenarios
-    scaled_scenarios = {}
-    for scenario, data in st.session_state.base_scenarios.items():
-        scaled_data = np.array(data) * st.session_state[f"{scenario}_scale"]
-        scaled_scenarios[scenario] = scaled_data.tolist()
-
     # Plot lines and shaded areas
-    scenarios = list(scaled_scenarios.keys())
+    scenarios = list(st.session_state.scenarios.keys())
     for i in range(len(scenarios) - 1):
         scenario1 = scenarios[i]
         scenario2 = scenarios[i + 1]
-        data1 = scaled_scenarios[scenario1]
-        data2 = scaled_scenarios[scenario2]
+        data1 = st.session_state.scenarios[scenario1]
+        data2 = st.session_state.scenarios[scenario2]
         
         # Plot the line
         ax.plot(years, data1, label=scenario1, color=colors[scenario1])
@@ -99,7 +93,7 @@ def update_plot():
         ax.fill_between(years, data1, data2, alpha=0.3, color='grey')
 
     # Plot the last scenario line
-    ax.plot(years, scaled_scenarios[scenarios[-1]], label=scenarios[-1], color=colors[scenarios[-1]])
+    ax.plot(years, st.session_state.scenarios[scenarios[-1]], label=scenarios[-1], color=colors[scenarios[-1]])
 
     ax.set_xlabel('Time (Years)')
     ax.set_ylabel('Degrees above pre-industrial warming')
@@ -115,14 +109,14 @@ def update_plot():
 
     # Calculate and update market sizes
     emissions_removal_market = np.trapz(
-        np.array(scaled_scenarios['Cut Emissions Aggressively']) - 
-        np.array(scaled_scenarios['Emissions Removal']), 
+        np.array(st.session_state.scenarios['Cut Emissions Aggressively']) - 
+        np.array(st.session_state.scenarios['Emissions Removal']), 
         years
     ) * st.session_state.co2_price * 1e9
 
     climate_interventions_market = np.trapz(
-        np.array(scaled_scenarios['Emissions Removal']) - 
-        np.array(scaled_scenarios['Climate Interventions']), 
+        np.array(st.session_state.scenarios['Emissions Removal']) - 
+        np.array(st.session_state.scenarios['Climate Interventions']), 
         years
     ) * st.session_state.co2_price * 1e9
 
@@ -143,8 +137,8 @@ Adjust the parameters below to see how they affect the projected climate impact 
 """)
 
 # Initialize session state
-if 'base_scenarios' not in st.session_state:
-    st.session_state.base_scenarios = None
+if 'scenarios' not in st.session_state:
+    st.session_state.scenarios = None
 
 # User inputs
 st.session_state.co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10, on_change=update_plot)
@@ -153,34 +147,17 @@ st.session_state.intervention_temp = st.slider("At what temperature above pre-in
 st.session_state.intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20, on_change=update_plot)
 
 # Generate scenarios button
-if st.button("Generate Scenarios") or st.session_state.base_scenarios is None:
+if st.button("Generate Scenarios") or st.session_state.scenarios is None:
     with st.spinner("Generating climate scenarios..."):
-        st.session_state.base_scenarios = generate_climate_scenarios(
+        st.session_state.scenarios = generate_climate_scenarios(
             client, 
             st.session_state.co2_price, 
             st.session_state.years_to_reduce, 
             st.session_state.intervention_temp, 
             st.session_state.intervention_duration
         )
-    
-    # Initialize scaling factors
-    for scenario in st.session_state.base_scenarios.keys():
-        st.session_state[f"{scenario}_scale"] = 1.0
 
-if st.session_state.base_scenarios:
-    # Sliders for scaling factors
-    st.subheader("Adjust Scenario Impacts")
-    for scenario in st.session_state.base_scenarios.keys():
-        st.session_state[f"{scenario}_scale"] = st.slider(
-            f"Scale {scenario}", 
-            min_value=0.5, 
-            max_value=2.0, 
-            value=1.0, 
-            step=0.1, 
-            key=f"{scenario}_scale_slider",
-            on_change=update_plot
-        )
-
+if st.session_state.scenarios:
     # Create placeholders for the plot and market sizes
     if 'plot_placeholder' not in st.session_state:
         st.session_state.plot_placeholder = st.empty()
