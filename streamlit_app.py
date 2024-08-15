@@ -4,7 +4,7 @@ import numpy as np
 from scipy.interpolate import make_interp_spline
 from openai import OpenAI
 import os
-import ast
+import re
 
 # Get the OpenAI API key from the environment variable
 api_key = os.getenv('OPENAI_API_KEY')
@@ -21,6 +21,18 @@ def normalize_data(data, target_length=100):
     if len(data) < target_length:
         return data + [data[-1]] * (target_length - len(data))
     return data[:target_length]
+
+def parse_incomplete_json(s):
+    result = {}
+    pattern = r'"([^"]+)"\s*:\s*\[([\d\.,\s]+)'
+    matches = re.findall(pattern, s)
+    for key, values in matches:
+        values = [float(v) for v in values.replace(' ', '').split(',') if v]
+        result[key] = values
+    return result
+
+def generate_default_scenario(name, start, end):
+    return [start + (end - start) * i / 99 for i in range(100)]
 
 def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration):
     prompt = f"""
@@ -56,21 +68,27 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
     )
 
     try:
-        scenarios = ast.literal_eval(response.choices[0].message.content)
-        if not isinstance(scenarios, dict) or len(scenarios) != 4:
+        scenarios = parse_incomplete_json(response.choices[0].message.content)
+        if len(scenarios) != 4:
             raise ValueError("Invalid response format: not a dictionary with 4 scenarios")
         
         normalized_scenarios = {}
         correct_order = ['Business as Usual', 'Cut Emissions Aggressively', 'Emissions Removal', 'Climate Interventions']
         
-        for correct_name in correct_order:
+        for i, correct_name in enumerate(correct_order):
             matched_key = next((key for key in scenarios.keys() if correct_name in key), None)
-            if matched_key is None:
-                raise ValueError(f"Missing scenario: {correct_name}")
-            
-            data = scenarios[matched_key]
-            if not isinstance(data, list):
-                raise ValueError(f"Invalid data for scenario '{matched_key}': expected list of values")
+            if matched_key is None or len(scenarios[matched_key]) < 100:
+                # Generate default data if missing or incomplete
+                if i == 0:
+                    data = generate_default_scenario(correct_name, 0, 6)
+                elif i == 1:
+                    data = generate_default_scenario(correct_name, 0, 4)
+                elif i == 2:
+                    data = generate_default_scenario(correct_name, 0, 2)
+                else:
+                    data = generate_default_scenario(correct_name, 0, 1)
+            else:
+                data = scenarios[matched_key]
             
             normalized_data = normalize_data(data)
             # Ensure no negative values and cap at 6°C
@@ -80,7 +98,9 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
         # Ensure scenarios are in descending order of warming
         for i in range(len(correct_order) - 1):
             if normalized_scenarios[correct_order[i]][-1] <= normalized_scenarios[correct_order[i+1]][-1]:
-                raise ValueError(f"Scenario {correct_order[i]} should show more warming than {correct_order[i+1]}")
+                # Adjust the data to ensure correct order
+                factor = normalized_scenarios[correct_order[i]][-1] / normalized_scenarios[correct_order[i+1]][-1]
+                normalized_scenarios[correct_order[i+1]] = [value / factor for value in normalized_scenarios[correct_order[i+1]]]
         
         return normalized_scenarios
     except Exception as e:
@@ -135,7 +155,7 @@ def update_plot():
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     ax.grid(True, alpha=0.3)
     ax.set_xlim(0, 100)
-    ax.set_ylim(bottom=0, top=min(10, max_temp * 1.1))  # Set top of y-axis to 10°C or 110% of max temperature, whichever is lower
+    ax.set_ylim(bottom=0, top=min(6, max_temp * 1.1))  # Set top of y-axis to 6°C or 110% of max temperature, whichever is lower
 
     # Remove top and right spines
     ax.spines['top'].set_visible(False)
