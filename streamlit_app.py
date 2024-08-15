@@ -15,7 +15,7 @@ if not api_key:
 # Initialize the OpenAI client
 client = OpenAI(api_key=api_key)
 
-# Function to generate climate scenarios using OpenAI
+
 def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration):
     prompt = f"""
     Generate climate impact scenarios based on the following parameters:
@@ -51,6 +51,7 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
 
     return scenarios
 
+
 # Set page config
 st.set_page_config(
     page_title='Climate Impact Scenarios',
@@ -66,8 +67,21 @@ Adjust the parameters below to see how they affect the projected climate impact 
 """)
 
 # User inputs
-co2_price = st.slider("What do you think is the right price per ton of CO2e?", 0, 1000, 50, 10)
+def validate_user_input(value, min_value, max_value):
+    """
+    Validates user input to ensure it's within the specified range.
+    """
+    if value < min_value or value > max_value:
+        st.error(f"Value must be between {min_value} and {max_value}.")
+        return None
+    return value
+
+co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10)
+co2_price = validate_user_input(co2_price, 0, 1000)  # Validate CO2 price
+
 years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30)
+years_to_reduce = validate_user_input(years_to_reduce, 0, 100)  # Validate years to reduce emissions
+
 intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1)
 intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20)
 
@@ -75,9 +89,9 @@ if st.button("Generate Scenarios"):
     with st.spinner("Generating climate scenarios..."):
         scenarios = generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration)
 
-    # Check if scenarios were generated successfully (based on the function return)
     if scenarios is None:
         st.error("Failed to generate scenarios. Please try again.")
+        # No need for continue here, as the code execution stops
         continue  # Skip the rest of the code if scenario generation failed
 
     # Create the plot
