@@ -1,6 +1,7 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.interpolate import make_interp_spline
 from openai import OpenAI
 import os
 import ast
@@ -68,7 +69,7 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
 
 def update_plot():
     fig, ax = plt.subplots(figsize=(12, 8))
-    years = np.arange(100)
+    years = np.linspace(0, 100, 100)
 
     # Define colors
     colors = {
@@ -78,33 +79,41 @@ def update_plot():
         'Climate Interventions': '#d62728'  # Red
     }
 
-    # Plot lines and shaded areas
-    scenarios = list(st.session_state.scenarios.keys())
-    for i in range(len(scenarios) - 1):
-        scenario1 = scenarios[i]
-        scenario2 = scenarios[i + 1]
-        data1 = st.session_state.scenarios[scenario1]
-        data2 = st.session_state.scenarios[scenario2]
+    # Plot smooth curves and shaded areas
+    scenario_names = list(st.session_state.scenarios.keys())
+    for i in range(len(scenario_names)):
+        scenario = scenario_names[i]
+        data = st.session_state.scenarios[scenario]
         
-        # Plot the line
-        ax.plot(years, data1, label=scenario1, color=colors[scenario1])
+        # Create smooth curve
+        spl = make_interp_spline(years, data, k=3)
+        smooth_years = np.linspace(0, 100, 300)
+        smooth_data = spl(smooth_years)
+        
+        # Plot the smooth curve
+        ax.plot(smooth_years, smooth_data, label=scenario, color=colors[scenario], linewidth=2)
         
         # Add shaded area
-        ax.fill_between(years, data1, data2, alpha=0.3, color='grey')
-
-    # Plot the last scenario line
-    ax.plot(years, st.session_state.scenarios[scenarios[-1]], label=scenarios[-1], color=colors[scenarios[-1]])
+        if i < len(scenario_names) - 1:
+            next_scenario = scenario_names[i + 1]
+            next_data = st.session_state.scenarios[next_scenario]
+            next_spl = make_interp_spline(years, next_data, k=3)
+            next_smooth_data = next_spl(smooth_years)
+            ax.fill_between(smooth_years, smooth_data, next_smooth_data, alpha=0.3, color=colors[scenario])
 
     ax.set_xlabel('Time (Years)')
     ax.set_ylabel('Degrees above pre-industrial warming')
     ax.set_title('Climate Impact Scenarios')
-    ax.legend()
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     ax.grid(True, alpha=0.3)
-
-    # Set y-axis to start from 0
+    ax.set_xlim(0, 100)
     ax.set_ylim(bottom=0)
 
-    st.session_state.plot_placeholder.pyplot(fig)
+    # Remove top and right spines
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    st.pyplot(fig)
     plt.close(fig)
 
     # Calculate and update market sizes
@@ -120,7 +129,7 @@ def update_plot():
         years
     ) * st.session_state.co2_price * 1e9
 
-    st.session_state.market_sizes.markdown(f"""
+    st.markdown(f"""
     ### Estimated Market Sizes
     - Emissions Removal Market: ${emissions_removal_market/1e9:.2f} billion
     - Climate Interventions Market: ${climate_interventions_market/1e9:.2f} billion
@@ -129,7 +138,7 @@ def update_plot():
     """)
 
 # Streamlit app
-st.title("Climate Impact Scenarios")
+st.title("Interactive Climate Impact Scenarios")
 
 st.write("""
 This tool allows you to explore different climate impact scenarios based on various interventions.
@@ -141,10 +150,10 @@ if 'scenarios' not in st.session_state:
     st.session_state.scenarios = None
 
 # User inputs
-st.session_state.co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10, on_change=update_plot)
-st.session_state.years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30, on_change=update_plot)
-st.session_state.intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1, on_change=update_plot)
-st.session_state.intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20, on_change=update_plot)
+st.session_state.co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10)
+st.session_state.years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30)
+st.session_state.intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1)
+st.session_state.intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20)
 
 # Generate scenarios button
 if st.button("Generate Scenarios") or st.session_state.scenarios is None:
@@ -158,13 +167,17 @@ if st.button("Generate Scenarios") or st.session_state.scenarios is None:
         )
 
 if st.session_state.scenarios:
-    # Create placeholders for the plot and market sizes
-    if 'plot_placeholder' not in st.session_state:
-        st.session_state.plot_placeholder = st.empty()
-    if 'market_sizes' not in st.session_state:
-        st.session_state.market_sizes = st.empty()
-
-    # Update the plot
     update_plot()
 else:
     st.error("Failed to generate scenarios. Please try again.")
+
+# Add explanatory text
+st.markdown("""
+### Scenario Descriptions:
+- **Business as Usual**: Continues current trends without significant changes in policy or behavior.
+- **Cut Emissions Aggressively**: Implements strong policies and actions to reduce greenhouse gas emissions.
+- **Emissions Removal**: Combines emission cuts with technologies to remove CO2 from the atmosphere.
+- **Climate Interventions**: Explores potential geoengineering techniques to directly influence climate.
+
+Note: This visualization is based on IPCC-inspired data and projections, interpreted through an AI model. Actual climate impacts may vary.
+""")
