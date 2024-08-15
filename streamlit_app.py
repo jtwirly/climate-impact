@@ -90,16 +90,15 @@ if st.button("Generate Scenarios"):
         scenarios = generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration)
 
     if scenarios is None:
-        st.error("Failed to generate scenarios. Please try again.")
+        st.error("Failed to decode JSON response. Please try again.")
         # No need for continue here, as the code execution stops
     else:
-        
-    # Create the plot
-    fig, ax = plt.subplots(figsize=(12, 8))
-    years = np.arange(100)
+        # Create the plot
+        fig, ax = plt.subplots(figsize=(12, 8))
+        years = np.arange(100)
 
-    for scenario, data in scenarios.items():
-        ax.plot(years, data, label=scenario)
+        for scenario, data in scenarios.items():
+            ax.plot(years, data, label=scenario)
 
     ax.fill_between(years, scenarios['Emissions Removal'], scenarios['Cut Emissions Aggressively'], alpha=0.3, label='Emissions Removal')
     ax.fill_between(years, scenarios['Climate Interventions'], scenarios['Emissions Removal'], alpha=0.3, label='Climate Interventions')
