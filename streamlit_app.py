@@ -31,9 +31,8 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
     4. Climate Interventions
 
     Use credible sources like IPCC reports for baseline data and projections.
-    Format the response strictly as a JSON object with keys for each scenario, containing arrays of 100 temperature values. Ensure that the response is valid JSON.
     """
-    
+
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -42,12 +41,13 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
         ]
     )
 
+    # Handle unexpected response format
     try:
         scenarios = json.loads(response.choices[0].message.content)
     except json.JSONDecodeError as e:
         st.error("Failed to decode JSON response. Please try again.")
         st.write("API Response:", response.choices[0].message.content)  # Debugging info
-        st.stop()
+        return None  # Indicate failure to generate scenarios
 
     return scenarios
 
@@ -58,7 +58,7 @@ st.set_page_config(
 )
 
 # Title
-st.title('🌍 Climate Impact Scenarios')
+st.title(' Climate Impact Scenarios')
 
 st.write("""
 This tool allows you to explore different climate impact scenarios based on various interventions.
@@ -74,6 +74,11 @@ intervention_duration = st.slider("How long do you think it will take from start
 if st.button("Generate Scenarios"):
     with st.spinner("Generating climate scenarios..."):
         scenarios = generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration)
+
+    # Check if scenarios were generated successfully (based on the function return)
+    if scenarios is None:
+        st.error("Failed to generate scenarios. Please try again.")
+        continue  # Skip the rest of the code if scenario generation failed
 
     # Create the plot
     fig, ax = plt.subplots(figsize=(12, 8))
