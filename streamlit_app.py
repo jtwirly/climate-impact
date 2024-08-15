@@ -15,6 +15,12 @@ if not api_key:
 # Initialize the OpenAI client
 client = OpenAI(api_key=api_key)
 
+def normalize_data(data, target_length=100):
+    """Normalize data to target length by padding or trimming."""
+    if len(data) < target_length:
+        return data + [data[-1]] * (target_length - len(data))
+    return data[:target_length]
+
 def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_temp, intervention_duration):
     prompt = f"""
     Generate climate impact scenarios based on the following parameters:
@@ -29,10 +35,10 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
     3. Emissions Removal
     4. Climate Interventions
 
-    Return ONLY a Python dictionary with scenario names as keys and lists of EXACTLY 100 temperature values as values.
+    Return ONLY a Python dictionary with scenario names as keys and lists of temperature values as values.
     Use credible sources like IPCC reports for baseline data and projections.
     The dictionary should look like this:
-    {{"Business as Usual": [list of 100 values], "Cut Emissions Aggressively": [list of 100 values], ...}}
+    {{"Business as Usual": [list of values], "Cut Emissions Aggressively": [list of values], ...}}
     """
 
     response = client.chat.completions.create(
@@ -48,10 +54,15 @@ def generate_climate_scenarios(client, co2_price, years_to_reduce, intervention_
         scenarios = ast.literal_eval(response.choices[0].message.content)
         if not isinstance(scenarios, dict) or len(scenarios) != 4:
             raise ValueError("Invalid response format: not a dictionary with 4 scenarios")
+        
+        # Normalize data for each scenario
+        normalized_scenarios = {}
         for scenario, data in scenarios.items():
-            if not isinstance(data, list) or len(data) != 100:
-                raise ValueError(f"Invalid data for scenario '{scenario}': expected list of 100 values, got {len(data)} values")
-        return scenarios
+            if not isinstance(data, list):
+                raise ValueError(f"Invalid data for scenario '{scenario}': expected list of values")
+            normalized_scenarios[scenario] = normalize_data(data)
+        
+        return normalized_scenarios
     except Exception as e:
         st.error(f"Failed to parse the response: {e}")
         st.write("API Response:", response.choices[0].message.content)  # Debugging info
