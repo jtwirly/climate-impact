@@ -1,95 +1,130 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
+from scipy.interpolate import make_interp_spline
 
-# Load data (approximations based on IPCC AR6 projections)
-def load_ipcc_data():
-    years = range(2000, 2101)  # This will create 101 years (2000 to 2100 inclusive)
+def generate_scenario(start, end, years, curve_type='linear'):
+    x = np.linspace(0, years, years+1)
+    if curve_type == 'linear':
+        y = np.linspace(start, end, years+1)
+    elif curve_type == 'exponential':
+        y = start + (end - start) * (1 - np.exp(-3 * x / years)) / (1 - np.exp(-3))
+    elif curve_type == 'logarithmic':
+        y = start + (end - start) * np.log(1 + 9 * x / years) / np.log(10)
+    return y
+
+def generate_climate_scenarios(co2_price, years_to_reduce, intervention_temp, intervention_duration):
+    years = 100
+    bau_end = 6.0 - (co2_price / 1000)  # Higher CO2 price slightly reduces BAU endpoint
+    cut_emissions_end = bau_end * (1 - min(years_to_reduce, 90) / 100)
+    removal_end = cut_emissions_end * 0.8
+    interventions_end = max(1.0, removal_end * 0.6)
+
     scenarios = {
-        'SSP5-8.5': [0.2 + 0.04*i for i in range(101)],  # High emissions
-        'SSP2-4.5': [0.2 + 0.025*i for i in range(101)],  # Intermediate
-        'SSP1-2.6': [0.2 + 0.015*i - 0.00005*i**2 for i in range(101)],  # Low emissions
-        'SSP1-1.9': [0.2 + 0.01*i - 0.00007*i**2 for i in range(101)]  # Very low emissions
+        'Business as Usual': generate_scenario(1, bau_end, years, 'exponential'),
+        'Cut Emissions Aggressively': generate_scenario(2, cut_emissions_end, years, 'logarithmic'),
+        'Emissions Removal': generate_scenario(1.8, removal_end, years, 'logarithmic'),
+        'Climate Interventions': generate_scenario(1.5, interventions_end, years, 'logarithmic')
     }
-    return pd.DataFrame(scenarios, index=years)
 
-ipcc_data = load_ipcc_data()
+    # Apply intervention effect
+    intervention_start = np.argmax(scenarios['Emissions Removal'] > intervention_temp)
+    intervention_end = min(years, intervention_start + intervention_duration)
+    intervention_effect = np.linspace(0, 1, intervention_end - intervention_start)
+    scenarios['Climate Interventions'][intervention_start:intervention_end] -= intervention_effect * (scenarios['Climate Interventions'][intervention_start:intervention_end] - interventions_end)
 
-def plot_scenarios(data, selected_scenarios):
+    return scenarios
+
+def update_plot(scenarios):
     fig, ax = plt.subplots(figsize=(12, 8))
-    
+    years = np.linspace(0, 100, 101)
+
     colors = {
-        'SSP5-8.5': '#d62728',  # Red
-        'SSP2-4.5': '#ff7f0e',  # Orange
-        'SSP1-2.6': '#2ca02c',  # Green
-        'SSP1-1.9': '#1f77b4'   # Blue
+        'Business as Usual': '#1f77b4',
+        'Cut Emissions Aggressively': '#ff7f0e',
+        'Emissions Removal': '#2ca02c',
+        'Climate Interventions': '#d62728'
     }
-    
-    for scenario in selected_scenarios:
-        ax.plot(data.index, data[scenario], label=scenario, color=colors[scenario], linewidth=2)
-    
-    ax.set_xlabel('Year')
-    ax.set_ylabel('Global Surface Temperature Change (°C)\nrelative to 1850-1900')
-    ax.set_title('IPCC AR6 Climate Change Scenarios')
-    ax.legend(loc='upper left')
+
+    for i, (scenario, data) in enumerate(scenarios.items()):
+        color = colors[scenario]
+        spl = make_interp_spline(years, data, k=3)
+        smooth_years = np.linspace(0, 100, 300)
+        smooth_data = spl(smooth_years)
+        ax.plot(smooth_years, smooth_data, label=scenario, color=color, linewidth=2)
+
+        if i < len(scenarios) - 1:
+            next_scenario = list(scenarios.keys())[i+1]
+            next_data = scenarios[next_scenario]
+            next_spl = make_interp_spline(years, next_data, k=3)
+            next_smooth_data = next_spl(smooth_years)
+            ax.fill_between(smooth_years, smooth_data, next_smooth_data, alpha=0.3, color=color)
+
+    ax.set_xlabel('Time (Years)')
+    ax.set_ylabel('Degrees above pre-industrial warming (°C)')
+    ax.set_title('Climate Impact Scenarios')
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     ax.grid(True, alpha=0.3)
-    ax.set_ylim(0, 6)
-    
+    ax.set_xlim(0, 100)
+    ax.set_ylim(bottom=0, top=6)
+
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    
+
     st.pyplot(fig)
 
-def calculate_market_sizes(data, selected_scenarios, co2_price):
-    market_sizes = {}
-    baseline = data['SSP5-8.5']  # Use the highest emission scenario as baseline
-    for scenario in selected_scenarios:
-        if scenario != 'SSP5-8.5':
-            difference = baseline - data[scenario]
-            market_size = np.trapz(difference, dx=1) * co2_price * 1e9
-            market_sizes[scenario] = market_size
-    return market_sizes
+def calculate_market_sizes(scenarios, co2_price):
+    years = np.linspace(0, 100, 101)
+    emissions_removal_market = max(0, np.trapz(
+        scenarios['Cut Emissions Aggressively'] - scenarios['Emissions Removal'], 
+        years
+    ) * co2_price * 1e9)
 
-st.title("IPCC Climate Change Scenarios")
+    climate_interventions_market = max(0, np.trapz(
+        scenarios['Emissions Removal'] - scenarios['Climate Interventions'], 
+        years
+    ) * co2_price * 1e9)
+
+    return {
+        'Emissions Removal': emissions_removal_market,
+        'Climate Interventions': climate_interventions_market
+    }
+
+# Streamlit app
+st.title("Interactive Climate Impact Scenarios")
 
 st.write("""
-This tool visualizes climate change scenarios based on data from the IPCC's Sixth Assessment Report (AR6).
-Select different scenarios to compare projected global temperature changes.
+This tool allows you to explore different climate impact scenarios based on various interventions.
+Adjust the parameters below to see how they affect the projected climate impact over time.
 """)
 
-st.warning("""
-**Note**: This tool uses approximate data based on IPCC AR6 projections. For the most accurate and up-to-date information, 
-please refer to the full IPCC reports and data portals.
+# User inputs
+co2_price = st.number_input("What do you think is the right price per ton of CO2e?", min_value=0, max_value=1000, value=50, step=10)
+years_to_reduce = st.slider("How long do you think it will take to reduce annual GHG emissions by >90%?", 0, 100, 30)
+intervention_temp = st.slider("At what temperature above pre-industrial levels should climate interventions start?", 1.0, 3.0, 1.5, 0.1)
+intervention_duration = st.slider("How long do you think it will take from start to finish of relying on climate interventions?", 0, 100, 20)
+
+# Generate scenarios and update plot
+scenarios = generate_climate_scenarios(co2_price, years_to_reduce, intervention_temp, intervention_duration)
+update_plot(scenarios)
+
+# Calculate and display market sizes
+market_sizes = calculate_market_sizes(scenarios, co2_price)
+st.markdown(f"""
+### Estimated Market Sizes
+- Emissions Removal Market: ${market_sizes['Emissions Removal']/1e9:.2f} billion
+- Climate Interventions Market: ${market_sizes['Climate Interventions']/1e9:.2f} billion
+
+*Note: These are rough estimates based on the provided scenarios and user inputs.*
 """)
 
-selected_scenarios = st.multiselect(
-    "Select scenarios to display",
-    options=ipcc_data.columns.tolist(),
-    default=['SSP5-8.5', 'SSP1-2.6']
-)
-
-co2_price = st.number_input("CO2 price per ton ($)", min_value=0, max_value=1000, value=50, step=10)
-
-if selected_scenarios:
-    plot_scenarios(ipcc_data, selected_scenarios)
-    
-    market_sizes = calculate_market_sizes(ipcc_data, selected_scenarios, co2_price)
-    if market_sizes:
-        st.markdown("### Estimated Market Sizes")
-        for scenario, size in market_sizes.items():
-            st.write(f"- {scenario}: ${size/1e9:.2f} billion")
-        st.write("*Note: These are rough estimates based on the area between the curves and the CO2 price.*")
-
+# Add explanatory text
 st.markdown("""
 ### Scenario Descriptions:
-- **SSP5-8.5**: High emissions scenario - fossil-fuel development
-- **SSP2-4.5**: Intermediate emissions scenario
-- **SSP1-2.6**: Low emissions scenario - sustainable development
-- **SSP1-1.9**: Very low emissions scenario - sustainable development with additional effort
+- **Business as Usual**: Continues current trends without significant changes in policy or behavior.
+- **Cut Emissions Aggressively**: Implements strong policies and actions to reduce greenhouse gas emissions.
+- **Emissions Removal**: Combines emission cuts with technologies to remove CO2 from the atmosphere.
+- **Climate Interventions**: Explores potential geoengineering techniques to directly influence climate.
 
-These scenarios are based on Shared Socioeconomic Pathways (SSPs) used in the IPCC AR6 report.
-The numbers (e.g., 8.5, 4.5) represent the estimated radiative forcing (W/m²) in 2100.
-
-For more detailed information, please refer to the [IPCC AR6 Report](https://www.ipcc.ch/report/ar6/wg1/).
+Note: This visualization is based on simplified models and should not be considered as precise predictions. Actual climate impacts may vary significantly.
 """)
