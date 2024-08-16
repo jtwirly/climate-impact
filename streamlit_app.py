@@ -63,6 +63,17 @@ def plot_scenarios(scenarios):
     plt.tight_layout()
     return fig
 
+def calculate_market_sizes(scenarios, co2_price):
+    years, bau, cut_emissions, emissions_removal, climate_interventions = scenarios
+    
+    emissions_removal_market = np.trapz(cut_emissions - emissions_removal, years) * co2_price * 1e9
+    climate_interventions_market = np.trapz(emissions_removal - climate_interventions, years) * co2_price * 1e9
+    
+    return {
+        'Emissions Removal': emissions_removal_market,
+        'Climate Interventions': climate_interventions_market
+    }
+
 st.title("Interactive IPCC-based Climate Impact Scenarios")
 
 st.write("""
@@ -78,6 +89,16 @@ intervention_duration = st.slider("Duration of climate interventions (years)", 0
 scenarios = generate_scenarios(co2_price, years_to_reduce, intervention_temp, intervention_duration)
 fig = plot_scenarios(scenarios)
 st.pyplot(fig)
+
+market_sizes = calculate_market_sizes(scenarios, co2_price)
+st.subheader("Estimated Market Sizes")
+st.write(f"Emissions Removal Market: ${market_sizes['Emissions Removal']/1e9:.2f} billion")
+st.write(f"Climate Interventions Market: ${market_sizes['Climate Interventions']/1e9:.2f} billion")
+st.caption("""
+Note: These are rough estimates based on the area between the curves and the CO2 price. 
+The Emissions Removal market size represents the potential value of reducing emissions from the 'Cut Emissions Aggressively' scenario to the 'Emissions Removal' scenario. 
+The Climate Interventions market size represents the potential value of further reducing emissions from the 'Emissions Removal' scenario to the 'Climate Interventions' scenario.
+These estimates are highly simplified and should be interpreted cautiously.
 
 st.markdown("""
 ### Scenario Descriptions (based on IPCC AR6):
