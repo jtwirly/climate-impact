@@ -5,12 +5,12 @@ import pandas as pd
 
 # Load data (approximations based on IPCC AR6 projections)
 def load_ipcc_data():
-    years = range(2000, 2101)
+    years = range(2000, 2101)  # This will create 101 years (2000 to 2100 inclusive)
     scenarios = {
-        'SSP5-8.5': [0.0] + [0.2 + 0.04*i for i in range(101)],  # High emissions
-        'SSP2-4.5': [0.0] + [0.2 + 0.025*i for i in range(101)],  # Intermediate
-        'SSP1-2.6': [0.0] + [0.2 + 0.015*i - 0.00005*i**2 for i in range(101)],  # Low emissions
-        'SSP1-1.9': [0.0] + [0.2 + 0.01*i - 0.00007*i**2 for i in range(101)]  # Very low emissions
+        'SSP5-8.5': [0.2 + 0.04*i for i in range(101)],  # High emissions
+        'SSP2-4.5': [0.2 + 0.025*i for i in range(101)],  # Intermediate
+        'SSP1-2.6': [0.2 + 0.015*i - 0.00005*i**2 for i in range(101)],  # Low emissions
+        'SSP1-1.9': [0.2 + 0.01*i - 0.00007*i**2 for i in range(101)]  # Very low emissions
     }
     return pd.DataFrame(scenarios, index=years)
 
