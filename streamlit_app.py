@@ -3,14 +3,40 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import make_interp_spline
 
+def generate_climate_scenarios(co2_price, years_to_reduce, intervention_temp, intervention_duration):
+    years = 100
+    bau_end = 5.0 + (1 - co2_price / 1000)
+    cut_emissions_peak = 3.0 - (co2_price / 500)
+    cut_emissions_end = cut_emissions_peak * (1 - min(years_to_reduce, 90) / 100)
+    removal_peak = cut_emissions_peak * 1.05
+    removal_end = cut_emissions_end * 0.9
+    interventions_peak = removal_peak * 0.95
+    interventions_end = max(0.5, removal_end * 0.7)
+
+    scenarios = {
+        'Business as Usual': generate_scenario(1, bau_end, bau_end, years, years, 'exponential'),
+        'Cut Emissions Aggressively': generate_scenario(1, cut_emissions_peak, cut_emissions_end, years, 35),
+        'Emissions Removal': generate_scenario(1, removal_peak, removal_end, years, 45),
+        'Climate Interventions': generate_scenario(1, interventions_peak, interventions_end, years, 50)
+    }
+
+    # Apply smoother intervention effect
+    intervention_start = int(intervention_temp * 20)  # Rough conversion from temperature to year
+    intervention_end = min(years, intervention_start + intervention_duration)
+    for i in range(intervention_start, intervention_end):
+        factor = (i - intervention_start) / (intervention_end - intervention_start)
+        scenarios['Climate Interventions'][i] = scenarios['Climate Interventions'][i] * (1 - factor) + interventions_end * factor
+
+    return scenarios
+
 def generate_scenario(start, peak, end, years, peak_year, curve_type='custom'):
     x = np.linspace(0, years, years+1)
     if curve_type == 'custom':
-        before_peak = start + (peak - start) * (x[:peak_year+1] / peak_year)**2
-        after_peak = peak + (end - peak) * ((x[peak_year:] - peak_year) / (years - peak_year))**0.5
+        before_peak = start + (peak - start) * (x[:peak_year+1] / peak_year)**1.5
+        after_peak = peak + (end - peak) * ((x[peak_year:] - peak_year) / (years - peak_year))**0.7
         y = np.concatenate([before_peak, after_peak[1:]])
     elif curve_type == 'exponential':
-        y = start + (end - start) * (1 - np.exp(-3 * x / years)) / (1 - np.exp(-3))
+        y = start + (end - start) * (1 - np.exp(-2 * x / years)) / (1 - np.exp(-2))
     return y
 
 def generate_climate_scenarios(co2_price, years_to_reduce, intervention_temp, intervention_duration):
