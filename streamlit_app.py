@@ -99,6 +99,7 @@ Note: These are rough estimates based on the area between the curves and the CO2
 The Emissions Removal market size represents the potential value of reducing emissions from the 'Cut Emissions Aggressively' scenario to the 'Emissions Removal' scenario. 
 The Climate Interventions market size represents the potential value of further reducing emissions from the 'Emissions Removal' scenario to the 'Climate Interventions' scenario.
 These estimates are highly simplified and should be interpreted cautiously.
+""")
 
 st.markdown("""
 ### Scenario Descriptions (based on IPCC AR6):
